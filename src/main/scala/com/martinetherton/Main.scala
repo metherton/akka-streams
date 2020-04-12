@@ -1,9 +1,12 @@
 package com.martinetherton
 
+import java.nio.file.Paths
+
 import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Flow, Keep, RunnableGraph, Sink, Source}
+import akka.stream.scaladsl.{FileIO, Flow, Framing, Keep, RunnableGraph, Sink, Source}
+import akka.util.ByteString
 
 import scala.concurrent.Future
 
@@ -14,19 +17,8 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
-  // Explicitly creating and wiring up a Source, Sink and Flow
-  Source(1 to 6).via(Flow[Int].map(_ * 2)).to(Sink.foreach(println(_)))
+  val source = FileIO.fromPath(Paths.get("test.csv"))
+    .via(Framing.delimiter(ByteString("\n"), 256, true).map(_.utf8String))
+    .runForeach(println)
 
-  // Starting from a Source
-  val source = Source(1 to 6).map(_ * 2)
-  source.to(Sink.foreach(println(_)))
-
-  // Starting from a Sink
-  val sink: Sink[Int, NotUsed] = Flow[Int].map(_ * 2).to(Sink.foreach(println(_)))
-  Source(1 to 6).to(sink)
-
-  // Broadcast to a sink inline
-  val otherSink: Sink[Int, NotUsed] =
-    Flow[Int].alsoTo(Sink.foreach(println(_))).to(Sink.ignore)
-  Source(1 to 6).to(otherSink)
 }
