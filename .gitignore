@@ -1,0 +1,7 @@
+
+.idea/
+added_files.patch
+build.sbt
+project/
+src/test/
+target/
