@@ -13,14 +13,29 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
-  val source = Source(1 to 10)
-  val sink = Sink.fold[Int, Int](0)(_ + _)
+  // Create a source from an Iterable
+  Source(List(1, 2, 3))
 
-  // connect the Source to the Sink, obtaining a RunnableGraph
-  val runnable: RunnableGraph[Future[Int]] = source.toMat(sink)(Keep.right)
+  // Create a source from a Future
+  Source.fromFuture(Future.successful("Hello Streams!"))
 
-  // materialize the flow and get the value of the FoldSink
-  val sum: Future[Int] = runnable.run()
+  // Create a source from a single element
+  Source.single("only one element")
 
-  sum.flatMap(s => Future {println("sum is :" + s)})
+  // an empty source
+  Source.empty
+
+  // Sink that folds over the stream and returns a Future
+  // of the final result as its materialized value
+  Sink.fold[Int, Int](0)(_ + _)
+
+  // Sink that returns a Future as its materialized value,
+  // containing the first element of the stream
+  Sink.head
+
+  // A Sink that consumes a stream without doing anything with the elements
+  Sink.ignore
+
+  // A Sink that executes a side-effecting call for every element of the stream
+  Sink.foreach[String](println(_))
 }
