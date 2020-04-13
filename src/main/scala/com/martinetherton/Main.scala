@@ -17,8 +17,16 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
-  val source = FileIO.fromPath(Paths.get("test.csv"))
-    .via(Framing.delimiter(ByteString("\n"), 256, true).map(_.utf8String))
-    .runForeach(println)
+  val source = Source(1 to 10)
+  val doubles = (x: Int) => x * 2
+  val doubleSource = source.map(doubles)
+  val sink = Sink.fold[Int, Int](0)(_ + _)
 
+  // connect the Source to the Sink, obtaining a RunnableGraph
+  val runnable: RunnableGraph[Future[Int]] = doubleSource.toMat(sink)(Keep.right)
+
+  // materialize the flow and get the value of the FoldSink
+  val sum: Future[Int] = runnable.run()
+
+  sum.flatMap(x => Future { println(x) })
 }
