@@ -1,6 +1,9 @@
 package com.martinetherton
 
-import java.nio.file.Paths
+import java.nio.file.attribute.FileTime
+import java.nio.file.{Files, Paths}
+import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 import akka.NotUsed
 import akka.actor.ActorSystem
@@ -27,7 +30,10 @@ object Main extends App {
 
   val x: Future[IOResult] = resSource.runWith(sink)
 
-  x.onComplete(_ => system.terminate())
+  x.onComplete(_ => {
+    Files.setLastModifiedTime(outfile, FileTime.from(Instant.ofEpochSecond(100000000L)))
+    system.terminate()
+  })
 
 
  // val foreach: Future[IOResult] = res.to(Sink.ignore).run()
