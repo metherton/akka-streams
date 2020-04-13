@@ -8,7 +8,9 @@ import akka.stream.{ActorMaterializer, IOResult}
 import akka.stream.scaladsl.{FileIO, Flow, Framing, Keep, RunnableGraph, Sink, Source}
 import akka.util.ByteString
 
-import scala.concurrent.Future
+import scala.concurrent.duration.{Duration, SECONDS}
+import scala.concurrent.{Await, Future}
+import scala.util.{Failure, Success, Try}
 
 object Main extends App {
 
@@ -17,12 +19,24 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
+  val outfile = Paths.get("out.wav")
   val file = Paths.get("test.csv")
   val res: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
-  val f = res.via(Framing.delimiter(ByteString("\n"), 256, true)).map(_.utf8String)
-  val sink = Sink.foreach[String](println(_))
-  val runnable = f.toMat(sink)(Keep.right)
-  val a = runnable.run()
+
+  val x: Future[IOResult] = res.runWith(FileIO.toPath(outfile))
+
+  x.onComplete(_ => system.terminate())
+
+
+ // val foreach: Future[IOResult] = res.to(Sink.ignore).run()
+ // val outfile = Paths.get("out.wav")
+//  val f = res.via(Framing.delimiter(ByteString("\n"), 256, true)).map(_.utf8String)
+
+//  val fileNames = f.map(x => x.split(";").head)
+////
+//  val sink = Sink.foreach[String](println(_))
+//  val runnable = fileNames.toMat(sink)(Keep.right)
+ // val a = runnable.run()
 
   //  val source = Source(1 to 10)
 //  val doubles = (x: Int) => x * 2
