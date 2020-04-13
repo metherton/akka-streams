@@ -20,10 +20,12 @@ object Main extends App {
   implicit val executionContext = system.dispatcher
 
   val outfile = Paths.get("out.wav")
-  val file = Paths.get("test.csv")
-  val res: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
+  val file = Paths.get("swirly.wav")
+  val resSource: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
 
-  val x: Future[IOResult] = res.runWith(FileIO.toPath(outfile))
+  val sink = FileIO.toPath(outfile)
+
+  val x: Future[IOResult] = resSource.runWith(sink)
 
   x.onComplete(_ => system.terminate())
 
