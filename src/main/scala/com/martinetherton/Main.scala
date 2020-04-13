@@ -22,16 +22,30 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
-  val outfile = Paths.get("out.wav")
-  val file = Paths.get("swirly.wav")
-  val resSource: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
+//  val outfile = Paths.get("out.wav")
+//  val file = Paths.get("swirly.wav")
+//  val resSource: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
+//
+//  val sink = FileIO.toPath(outfile)
+//
+//  val s = Source(1 to 6)
+//
+//  val x: Future[IOResult] = resSource.runWith(sink)
+//
+//  x.onComplete(_ => {
+//    Files.setLastModifiedTime(outfile, FileTime.from(Instant.ofEpochSecond(100000000L)))
+//    system.terminate()
+//  })
 
-  val sink = FileIO.toPath(outfile)
 
-  val x: Future[IOResult] = resSource.runWith(sink)
+
+
+  val x = FileIO.fromPath(Paths.get("test.csv"))
+    .via(Framing.delimiter(ByteString("\n"), 256, true).map(_.utf8String))
+    .to(Sink.foreach(y => println(y)))
+    .run()
 
   x.onComplete(_ => {
-    Files.setLastModifiedTime(outfile, FileTime.from(Instant.ofEpochSecond(100000000L)))
     system.terminate()
   })
 
