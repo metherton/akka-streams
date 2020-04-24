@@ -35,18 +35,21 @@ object Main extends App {
   val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
   val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
   val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
-
-  val readFile: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)), person))
+  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
+  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(p => p)
+  val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
+//  val copyFile = FlowWithContext[Person, Person].map(person => person).via(readFile)//.map(bytesAndRecording => bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)))
   def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
   def writeFile(n: String) = FileIO.toPath(outFile(n))
-//  val copyFileAndPerson = FlowWithContext[Person, Person].map(person => person).via(readFile).map(bytesAndRecording => bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)))
+ // val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file)))
+  val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
 
+  val writeMyFile = Flow[Person]
 
 //  val result = in.via(lineChunks).throttle(2, 1.second).via(createPerson)
 //    .via(copyFileAndRecording).runForeach(x => println(x))
 
-  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
-  val sourceOfPersonsWithContext: SourceWithContext[Person, String, NotUsed] = sourceOfPersons.asSourceWithContext(p => s"metadata for $p.name")
+
 //  val result: Source[(Person, Person), NotUsed] = sourceOfPersonsWithContext.asSource
 
  // val readFileFlow = Flow[Person, Source[ByteString, Future[IOResult]], NotUsed]
@@ -54,7 +57,7 @@ object Main extends App {
 
  // val result = sourceOfPersonsWithContext.asSource.via(copyFandP).runWith(Sink.seq)
 
-  val result = sourceOfPersonsWithContext.runWith(Sink.seq)
+  val result = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.ignore)
   implicit val ec = system.dispatcher
   result onComplete {
     case Success(value) => {
