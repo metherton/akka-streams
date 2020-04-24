@@ -1,75 +1,89 @@
 package com.martinetherton
 
 import java.nio.file.attribute.FileTime
-import java.nio.file.{Files, Paths}
+import java.nio.file.{Files, Paths, StandardOpenOption}
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 
-import akka.NotUsed
+import akka.{Done, NotUsed}
 import akka.actor.ActorSystem
+import akka.stream.alpakka.csv.scaladsl.CsvParsing
 import akka.stream.{ActorMaterializer, IOResult}
-import akka.stream.scaladsl.{FileIO, Flow, Framing, Keep, RunnableGraph, Sink, Source}
+import akka.stream.scaladsl.{FileIO, Flow, FlowWithContext, Keep, Sink, Source, SourceWithContext}
 import akka.util.ByteString
 
-import scala.concurrent.duration.{Duration, SECONDS}
-import scala.concurrent.{Await, Future}
-import scala.util.{Failure, Success, Try}
+import scala.concurrent.duration._
+import scala.concurrent.Future
+import scala.util.{Failure, Random, Success}
 
 object Main extends App {
 
-  implicit val system = ActorSystem()
+  implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end
-  implicit val executionContext = system.dispatcher
 
-//  val outfile = Paths.get("out.wav")
-//  val file = Paths.get("swirly.wav")
-//  val resSource: Source[ByteString, Future[IOResult]] = FileIO.fromPath(file)
-//
-//  val sink = FileIO.toPath(outfile)
-//
-//  val s = Source(1 to 6)
-//
-//  val x: Future[IOResult] = resSource.runWith(sink)
-//
-//  x.onComplete(_ => {
-//    Files.setLastModifiedTime(outfile, FileTime.from(Instant.ofEpochSecond(100000000L)))
-//    system.terminate()
-//  })
+  case class Person(cols: Array[String]) {
+    val file: String = cols(0)
+    val name: String = cols(1)
 
+    //override def toString = f"$file: and $name"
+  }
 
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+  val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
 
-
-  val x = FileIO.fromPath(Paths.get("test.csv"))
-    .via(Framing.delimiter(ByteString("\n"), 256, true).map(_.utf8String))
-    .to(Sink.foreach(y => println(y)))
-    .run()
-
-  x.onComplete(_ => {
-    system.terminate()
-  })
+  val readFile: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)), person))
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+//  val copyFileAndPerson = FlowWithContext[Person, Person].map(person => person).via(readFile).map(bytesAndRecording => bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)))
 
 
- // val foreach: Future[IOResult] = res.to(Sink.ignore).run()
- // val outfile = Paths.get("out.wav")
-//  val f = res.via(Framing.delimiter(ByteString("\n"), 256, true)).map(_.utf8String)
+//  val result = in.via(lineChunks).throttle(2, 1.second).via(createPerson)
+//    .via(copyFileAndRecording).runForeach(x => println(x))
 
-//  val fileNames = f.map(x => x.split(";").head)
-////
-//  val sink = Sink.foreach[String](println(_))
-//  val runnable = fileNames.toMat(sink)(Keep.right)
- // val a = runnable.run()
+  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
+  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(p => p)
+//  val result: Source[(Person, Person), NotUsed] = sourceOfPersonsWithContext.asSource
 
-  //  val source = Source(1 to 10)
-//  val doubles = (x: Int) => x * 2
-//  val doubleSource = source.map(doubles)
-//  val sink = Sink.fold[Int, Int](0)(_ + _)
-//
-//  // connect the Source to the Sink, obtaining a RunnableGraph
-//  val runnable: RunnableGraph[Future[Int]] = doubleSource.toMat(sink)(Keep.right)
-//
-//  // materialize the flow and get the value of the FoldSink
-//  val sum: Future[Int] = runnable.run()
-//
-//  sum.flatMap(x => Future { println(x) })
+  def fancyFlow = FlowWithContext[Person, Person].map(x => x)
+
+  val result = sourceOfPersonsWithContext.via(fancyFlow).runWith(Sink.seq)
+
+//  val result = sourceOfPersons.via(copyFileAndRecording).runWith(Sink.seq)
+  implicit val ec = system.dispatcher
+  result onComplete {
+    case Success(value) => {
+      println(value); system.terminate()
+    }
+    case Failure(e) => println(e.getMessage)
+  }
+
+
+  /* works fine..no encryption
+
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+  val readFile: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)), person))
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+  val copyFileAndRecording = Flow[Person].map(person => person).via(readFile).map(bytesAndRecording => bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)))
+  val result = in.via(lineChunks).throttle(2, 1.second).via(createPerson)
+    .via(copyFileAndRecording).runForeach(x => println(x))
+
+  implicit val ec = system.dispatcher
+  result onComplete {
+    case Success(value) => {
+      println(value); system.terminate()
+    }
+    case Failure(e) => println(e.getMessage)
+  }
+
+   */
 }
