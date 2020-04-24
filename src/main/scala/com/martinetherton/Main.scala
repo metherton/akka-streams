@@ -46,14 +46,15 @@ object Main extends App {
 //    .via(copyFileAndRecording).runForeach(x => println(x))
 
   val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
-  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(p => p)
+  val sourceOfPersonsWithContext: SourceWithContext[Person, String, NotUsed] = sourceOfPersons.asSourceWithContext(p => s"metadata for $p.name")
 //  val result: Source[(Person, Person), NotUsed] = sourceOfPersonsWithContext.asSource
 
-  def fancyFlow = FlowWithContext[Person, Person].map(x => x)
+ // val readFileFlow = Flow[Person, Source[ByteString, Future[IOResult]], NotUsed]
+ // val copyFandP = Flow[Person].map(person => person).via(readFileFlow)
 
-  val result = sourceOfPersonsWithContext.via(fancyFlow).runWith(Sink.seq)
+ // val result = sourceOfPersonsWithContext.asSource.via(copyFandP).runWith(Sink.seq)
 
-//  val result = sourceOfPersons.via(copyFileAndRecording).runWith(Sink.seq)
+  val result = sourceOfPersonsWithContext.runWith(Sink.seq)
   implicit val ec = system.dispatcher
   result onComplete {
     case Success(value) => {
