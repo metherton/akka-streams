@@ -28,6 +28,88 @@ object Main extends App {
     override def toString = f"$file: and $name"
   }
 
+ /* added scource context
+
+  type MsgContext = String
+  final case class Msg(data: String, context: MsgContext)
+
+  val s = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2"))).asSourceWithContext(x => x)
+  val sc = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2")))
+    .map {
+      case Msg(data, context) => (data, context) // a recipe for decomposition
+    }
+
+  val sc1 = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2")))
+
+  val scCon = sc.asSourceWithContext(x => x)
+  val otherSc = SourceWithContext.fromTuples(sc1.map {
+    case Msg(data, context) => (data, context)
+  })
+
+*/
+
+  /* source with tuples waiting for next step
+
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+  val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
+
+  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+    case Person(x) => (Person(x), Person(x))
+  })
+  val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+  val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec).asFlow
+  val result = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.ignore)
+  implicit val ec = system.dispatcher
+  result onComplete {
+    case Success(value) => {
+      println(value); system.terminate()
+    }
+    case Failure(e) => println(e.getMessage)
+  }
+
+*/
+
+
+/* source with context in tuples
+
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+  val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
+
+  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+    case Person(x) => (Person(x), Person(x))
+  })
+  val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+  val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
+  val result = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.ignore)
+  implicit val ec = system.dispatcher
+  result onComplete {
+    case Success(value) => {
+      println(value); system.terminate()
+    }
+    case Failure(e) => println(e.getMessage)
+  }
+
+ */
+
+
+  /*  works fine with Context
+
   val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
   val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
   def encryptBytes(byteString: ByteString): ByteString = byteString
@@ -50,6 +132,7 @@ object Main extends App {
     case Failure(e) => println(e.getMessage)
   }
 
+*/
 
   /* works fine..no encryption
 
