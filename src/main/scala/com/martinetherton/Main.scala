@@ -25,7 +25,7 @@ object Main extends App {
     val file: String = cols(0)
     val name: String = cols(1)
 
-    //override def toString = f"$file: and $name"
+    override def toString = f"$file: and $name"
   }
 
   val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
@@ -38,25 +38,9 @@ object Main extends App {
   val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
   val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(p => p)
   val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
-//  val copyFile = FlowWithContext[Person, Person].map(person => person).via(readFile)//.map(bytesAndRecording => bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)))
   def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
   def writeFile(n: String) = FileIO.toPath(outFile(n))
- // val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file)))
   val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
-
-  val writeMyFile = Flow[Person]
-
-//  val result = in.via(lineChunks).throttle(2, 1.second).via(createPerson)
-//    .via(copyFileAndRecording).runForeach(x => println(x))
-
-
-//  val result: Source[(Person, Person), NotUsed] = sourceOfPersonsWithContext.asSource
-
- // val readFileFlow = Flow[Person, Source[ByteString, Future[IOResult]], NotUsed]
- // val copyFandP = Flow[Person].map(person => person).via(readFileFlow)
-
- // val result = sourceOfPersonsWithContext.asSource.via(copyFandP).runWith(Sink.seq)
-
   val result = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.ignore)
   implicit val ec = system.dispatcher
   result onComplete {
