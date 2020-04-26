@@ -1,7 +1,7 @@
 package com.martinetherton
 
 import java.nio.file.attribute.FileTime
-import java.nio.file.{Files, Paths, StandardOpenOption}
+import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import java.time.Instant
 
 import akka.{Done, NotUsed}
@@ -20,6 +20,20 @@ object Main extends App {
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end
+
+  case class Job(val jobName: String)
+  case class Address(val addressName: String)
+
+  case class HumanBeing(val job: Job, val address: Address)
+
+  val humans = Source(List(HumanBeing(Job("Doctor"), Address("London")), HumanBeing(Job("Lawyer"), Address("Sheffield"))))
+
+  val humansWithContext = humans.asSourceWithContext(p => p)
+
+//  val extractAddress:
+  val printJobs = FlowWithContext[HumanBeing, HumanBeing].map(x => x).asFlow
+
+  val bla = humansWithContext.via(printJobs).asSource.asSourceWithContext(x => x)
 
   case class Person(cols: Array[String]) {
     val file: String = cols(0)
@@ -48,6 +62,28 @@ object Main extends App {
 
 */
 
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+  val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
+  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(person => person)
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+  val copyFile: FlowWithContext[Person, Person, Person, Person, NotUsed]#Repr[Future[IOResult], Person] = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))).runWith(writeFile(person.file)))
+  private val result: Future[Seq[(Future[IOResult], Person)]] = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.seq)
+
+  implicit val ec = system.dispatcher
+  result onComplete {
+    case Success(value) => {
+      println(value); system.terminate()
+    }
+    case Failure(e) => println(e.getMessage)
+  }
+
   /* source with tuples waiting for next step
 
   val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
@@ -74,9 +110,7 @@ object Main extends App {
     }
     case Failure(e) => println(e.getMessage)
   }
-
 */
-
 
 /* source with context in tuples
 
