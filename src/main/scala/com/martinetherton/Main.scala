@@ -22,20 +22,6 @@ object Main extends App {
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end
 
-  case class Job(val jobName: String)
-  case class Address(val addressName: String)
-
-  case class HumanBeing(val job: Job, val address: Address)
-
-  val humans = Source(List(HumanBeing(Job("Doctor"), Address("London")), HumanBeing(Job("Lawyer"), Address("Sheffield"))))
-
-  val humansWithContext = humans.asSourceWithContext(p => p)
-
-//  val extractAddress:
-  val printJobs = FlowWithContext[HumanBeing, HumanBeing].map(x => x).asFlow
-
-  val bla = humansWithContext.via(printJobs).asSource.asSourceWithContext(x => x)
-
   case class Person(cols: Array[String]) {
     val file: String = cols(0)
     val name: String = cols(1)
@@ -43,48 +29,30 @@ object Main extends App {
     override def toString = f"$file: and $name"
   }
 
- /* added scource context
-
-  type MsgContext = String
-  final case class Msg(data: String, context: MsgContext)
-
-  val s = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2"))).asSourceWithContext(x => x)
-  val sc = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2")))
-    .map {
-      case Msg(data, context) => (data, context) // a recipe for decomposition
-    }
-
-  val sc1 = Source(List(Msg("data-1", "meta-1"), Msg("data-2", "meta-2")))
-
-  val scCon = sc.asSourceWithContext(x => x)
-  val otherSc = SourceWithContext.fromTuples(sc1.map {
-    case Msg(data, context) => (data, context)
+  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+  def encryptBytes(byteString: ByteString): ByteString = byteString
+  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+  val createRecordingToImport: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+  val secondRecordingToImport = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+  val readFileEncryptedBytes: Flow[Person, Source[ByteString, Future[IOResult]], NotUsed] = Flow[Person].map(person => FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)))
+  val readFileEncryptedBytesAndRecording: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(recording => {
+    val first = FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + recording.file))
+    val second = recording
+    (first, second)
   })
+  val justTheFiles = Flow[(Source[ByteString, Future[IOResult]], Person)].map(t => t._1)
+  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+  def outFileName(f: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + f)
+  def writeFile(n: String) = FileIO.toPath(outFile(n))
+  val copyFileAndRecording =
+    Flow[Person].map(recording => recording).via(readFileEncryptedBytesAndRecording).
+      map(bytesAndRecording => (bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)), bytesAndRecording._2))
 
-*/
+  val setFileOutputName = Flow[Person].map(recording => "/Users/martin/myprojects/sbt/streams/dest/" + recording.file)
+
 
   def copyFiles() = {
-    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
-    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
-    def encryptBytes(byteString: ByteString): ByteString = byteString
-    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
-    val createRecordingToImport: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
-    val secondRecordingToImport = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
-    val readFileEncryptedBytes: Flow[Person, Source[ByteString, Future[IOResult]], NotUsed] = Flow[Person].map(person => FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)))
-    val readFileEncryptedBytesAndRecording: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(recording => {
-      val first = FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + recording.file))
-      val second = recording
-      (first, second)
-    })
-    val justTheFiles = Flow[(Source[ByteString, Future[IOResult]], Person)].map(t => t._1)
-    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
-    def outFileName(f: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + f)
-    def writeFile(n: String) = FileIO.toPath(outFile(n))
-    val copyFileAndRecording =
-      Flow[Person].map(recording => recording).via(readFileEncryptedBytesAndRecording).
-        map(bytesAndRecording => (bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)), bytesAndRecording._2))
-
-    val setFileOutputName = Flow[Person].map(recording => "/Users/martin/myprojects/sbt/streams/dest/" + recording.file)
 
     val result: Future[Done] = in.via(lineChunks).throttle(100, 5.second).via(createRecordingToImport).via(copyFileAndRecording).runForeach(x => println(x))
     result
