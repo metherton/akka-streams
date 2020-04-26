@@ -17,6 +17,7 @@ import scala.util.{Failure, Random, Success}
 
 object Main extends App {
 
+  import scala.concurrent.ExecutionContext.Implicits.global
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end
@@ -62,25 +63,68 @@ object Main extends App {
 
 */
 
-  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
-  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
-  def encryptBytes(byteString: ByteString): ByteString = byteString
-  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
-  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
-  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
-  val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
-  val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.mapConcat(identity)
-  val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = sourceOfPersons.asSourceWithContext(person => person)
-  def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
-  def writeFile(n: String) = FileIO.toPath(outFile(n))
-  val copyFile: FlowWithContext[Person, Person, Person, Person, NotUsed]#Repr[Future[IOResult], Person] = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))).runWith(writeFile(person.file)))
-  private val result: Future[Seq[(Future[IOResult], Person)]] = sourceOfPersonsWithContext.via(copyFile).runWith(Sink.seq)
+  def copyFiles() = {
+    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+    def encryptBytes(byteString: ByteString): ByteString = byteString
+    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+    val createRecordingToImport: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+    val secondRecordingToImport = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+    val readFileEncryptedBytes: Flow[Person, Source[ByteString, Future[IOResult]], NotUsed] = Flow[Person].map(person => FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file)))
+    val readFileEncryptedBytesAndRecording: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(recording => {
+      val first = FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + recording.file))
+      val second = recording
+      (first, second)
+    })
+    val justTheFiles = Flow[(Source[ByteString, Future[IOResult]], Person)].map(t => t._1)
+    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+    def outFileName(f: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + f)
+    def writeFile(n: String) = FileIO.toPath(outFile(n))
+    val copyFileAndRecording =
+      Flow[Person].map(recording => recording).via(readFileEncryptedBytesAndRecording).
+        map(bytesAndRecording => (bytesAndRecording._1.runWith(writeFile(bytesAndRecording._2.file)), bytesAndRecording._2))
 
-  implicit val ec = system.dispatcher
+    val setFileOutputName = Flow[Person].map(recording => "/Users/martin/myprojects/sbt/streams/dest/" + recording.file)
+
+    val result: Future[Done] = in.via(lineChunks).throttle(100, 5.second).via(createRecordingToImport).via(copyFileAndRecording).runForeach(x => println(x))
+    result
+  }
+
+  def setExpiryDateOfFiles(futureDone: Done) = {
+    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+    def encryptBytes(byteString: ByteString): ByteString = byteString
+    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+    val createRecordingToImport: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+    val secondRecordingToImport = Flow[List[ByteString]].map{ x => Person(x.map(y => y.utf8String.mkString).toArray)}
+    val readFileEncryptedBytes: Flow[Person, Source[ByteString, Future[IOResult]], NotUsed] = Flow[Person].map(recording => FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + recording.file)))
+    val readFileEncryptedBytesAndRecording: Flow[Person, (Source[ByteString, Future[IOResult]], Person), NotUsed] = Flow[Person].map(recording => {
+      val first = FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + recording.file))
+      val second = recording
+      (first, second)
+    })
+    val justTheFiles = Flow[(Source[ByteString, Future[IOResult]], Person)].map(t => t._1)
+    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+    def outFileName(f: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + f)
+    def writeFile(n: String) = FileIO.toPath(outFile(n))
+
+    val setFileOutputName = Flow[Person].map(recording => "/Users/martin/myprojects/sbt/streams/source/" + recording.file)
+
+
+    val setLastModifiedDate = Flow[Person].map(recording => Files.setLastModifiedTime(Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + recording.file), FileTime.from(Instant.ofEpochSecond(9000000000L))))
+
+    val result = in.via(lineChunks).throttle(100, 5.second).via(createRecordingToImport).via(setLastModifiedDate).runForeach(x => println(x))
+    result
+  }
+
+
+  val result: Future[Done] = for {
+    x <- copyFiles()
+    y <- setExpiryDateOfFiles(x)
+  } yield y
+
   result onComplete {
-    case Success(value) => {
-      println(value); system.terminate()
-    }
+    case Success(value) => {system.terminate()}
     case Failure(e) => println(e.getMessage)
   }
 
