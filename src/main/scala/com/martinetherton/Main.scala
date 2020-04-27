@@ -129,7 +129,7 @@ object Main extends App {
 */
 
 
-  def persons() = {
+  val persons = {
     val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
     val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
     def encryptBytes(byteString: ByteString): ByteString = byteString
@@ -156,8 +156,26 @@ object Main extends App {
     result
   }
 
+  def setLastModified(done: Done) = {
+    val result = persons.map(person => Files.setLastModifiedTime(Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + person.file), FileTime.from(Instant.ofEpochSecond(9000000000L)))).runWith(Sink.ignore)
+    result
+  }
+
+  /*
+    val setLastModifiedDate = Flow[RecordingToImport].map(recording => Files.setLastModifiedTime(Paths.get("/Users/dt10dw/dest/" + recording.fileName.get), FileTime.from(Instant.ofEpochSecond(9000000000L))))
+
+    val result = in.via(lineChunks).throttle(100, 5.second).via(createRecordingToImport).via(setLastModifiedDate).runForeach(x => println(x))
+    result
+  }
+
+   */
+
   implicit val ec = system.dispatcher
-  copyFile().onComplete(_ => system.terminate)
+  val result = for {
+    source <- copyFile()
+    out <- setLastModified(source)
+  } yield out
+  result.onComplete(_ => system.terminate)
 
 
 
