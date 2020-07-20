@@ -40,13 +40,31 @@ object Main extends App {
   } yield line).toList.map(l => Person(l.split(",").map(_.trim)))
 
   //val simpleSink = Sink.foreach[Person](println)
-  val simpleSink = Sink.seq[Person]
+  val simpleSink = Sink.seq[String]
 
-  val graph = Source(persons).toMat(simpleSink)(Keep.right)
-  graph.run().onComplete {
+  val myVector = Vector("one", "two")
+  val mapped = for {
+    num <- myVector
+  } yield num
+
+  println(s"mapped: $mapped")
+
+  val runnableGraph = Source(persons).map(p => p.file).toMat(simpleSink)(Keep.right)
+  val futureFiles: Future[Seq[String]] = runnableGraph.run()
+  futureFiles.onComplete {
     case Success(value) => println(s"values: $value")
     case Failure(ex) => println(s"Stream processing finished with: $ex")
   }
+
+  def setExpiryDates(value: Seq[String]): Int = {
+    1
+  }
+
+  val bla1 = for {
+    files <- futureFiles
+  } yield files
+
+  println(s"bla1 : $bla1")
 
   //  val sourcePerson = Source(List(Person("martin"), Person("john"), Person("freddie"), Person("william"), Person("bob")))
 //  val mapPersonName = Flow[Person].map(p => p.name)
