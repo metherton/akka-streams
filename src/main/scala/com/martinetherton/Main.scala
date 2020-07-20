@@ -52,7 +52,12 @@ object Main extends App {
   val runnableGraph = Source(persons).map(p => p.file).toMat(simpleSink)(Keep.right)
   val futureFiles: Future[Seq[String]] = runnableGraph.run()
   futureFiles.onComplete {
-    case Success(value) => println(s"values: $value")
+    case Success(value) => {   val bla1 = for {
+                                files <- value
+                             } yield files
+
+                             println(s"bla1 : $bla1")
+    }
     case Failure(ex) => println(s"Stream processing finished with: $ex")
   }
 
@@ -60,11 +65,7 @@ object Main extends App {
     1
   }
 
-  val bla1 = for {
-    files <- futureFiles
-  } yield files
 
-  println(s"bla1 : $bla1")
 
   //  val sourcePerson = Source(List(Person("martin"), Person("john"), Person("freddie"), Person("william"), Person("bob")))
 //  val mapPersonName = Flow[Person].map(p => p.name)
