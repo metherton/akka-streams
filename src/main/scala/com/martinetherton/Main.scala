@@ -21,16 +21,38 @@ object Main extends App {
   import scala.concurrent.ExecutionContext.Implicits.global
   implicit val system = ActorSystem("QuickStart")
   implicit val materializer = ActorMaterializer()
+  implicit val ec = system.dispatcher
   // needed for the future flatMap/onComplete in the end
 
   case class Person(cols: Array[String]) {
     val file: String = cols(0)
     val name: String = cols(1)
 
-    override def toString = f"$file: and $name"
+    override def toString = f"$file and $name"
   }
 
-  val s = Source(1 to 10).toMat(Sink.ignore)(Keep.right)
+
+  val csvFile = "/Users/martin/myprojects/sbt/streams/test.csv"
+  val source = scala.io.Source.fromFile(csvFile)
+
+  val persons: List[Person] = (for {
+    line <- source.getLines
+  } yield line).toList.map(l => Person(l.split(",").map(_.trim)))
+
+  //val simpleSink = Sink.foreach[Person](println)
+  val simpleSink = Sink.seq[Person]
+
+  val graph = Source(persons).toMat(simpleSink)(Keep.right)
+  graph.run().onComplete {
+    case Success(value) => println(s"values: $value")
+    case Failure(ex) => println(s"Stream processing finished with: $ex")
+  }
+
+  //  val sourcePerson = Source(List(Person("martin"), Person("john"), Person("freddie"), Person("william"), Person("bob")))
+//  val mapPersonName = Flow[Person].map(p => p.name)
+//  val filterNames = Flow[String].filter(n => n.length > 5)
+//  val firstTwo = Flow[String].take(2)
+//  sourcePerson.via(mapPersonName).via(filterNames).via(firstTwo).runForeach(println)
 
 
 //  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
@@ -128,80 +150,102 @@ object Main extends App {
   }
 */
 
-  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
-  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
-  def encryptBytes(byteString: ByteString): ByteString = byteString
-  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
-  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
-  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+//  val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+//  val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+//  def encryptBytes(byteString: ByteString): ByteString = byteString
+//  val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+//  val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+//  val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
 
 
-  def persons = {
-    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
-    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
-      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
-      .mapConcat(identity)
-
-    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
-      case Person(x) => (Person(x), Person(x))
-    })
-    sourceOfPersonsWithContext
-  }
-
-
-
-  def copyFile() = {
-    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
-    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
-    def encryptBytes(byteString: ByteString): ByteString = byteString
-    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
-    val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
-    val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
-
-    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
-    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
-      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
-      .mapConcat(identity)
-
-    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
-      case Person(x) => (Person(x), Person(x))
-    })
-
-    val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
-    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
-    def writeFile(n: String) = FileIO.toPath(outFile(n))
-    val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
-    val result = persons.via(copyFile).runWith(Sink.ignore)
-    result
-  }
-
-  def setLastModified(done: Done) = {
-    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
-    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
-    def encryptBytes(byteString: ByteString): ByteString = byteString
-    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
-    val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
-    val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
-
-    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
-    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
-      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
-      .mapConcat(identity)
-
-    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
-      case Person(x) => (Person(x), Person(x))
-    })
-
-    val result = sourceOfPersonsWithContext.map(person => Files.setLastModifiedTime(Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + person.file), FileTime.from(Instant.ofEpochSecond(9000000000L)))).runWith(Sink.ignore)
-    result
-  }
-
-  implicit val ec = system.dispatcher
-//  val result = for {
-//    source <- copyFile()
-//    out <- setLastModified(source)
-//  } yield out
-//  result.onComplete(_ => system.terminate)
+//  def persons = {
+//    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+//    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
+//      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
+//      .mapConcat(identity)
+//
+//    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+//      case Person(x) => (Person(x), Person(x))
+//    })
+//    sourceOfPersonsWithContext
+//  }
+//
+//  def copyFileOld() = {
+//    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+//    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+//    def encryptBytes(byteString: ByteString): ByteString = byteString
+//    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+//    val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+//    val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+//
+//    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+//    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
+//      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
+//      .mapConcat(identity)
+//
+//    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+//      case Person(x) => (Person(x), Person(x))
+//    })
+//
+//    val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
+//    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+//    def writeFile(n: String) = FileIO.toPath(outFile(n))
+//    val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
+//    val result = persons.via(copyFile).runWith(Sink.ignore)
+//    result
+//  }
+//
+//  def copyFile() = {
+//    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+//
+//    val flow: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner(",", "'", "\")
+//
+//    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+//    def encryptBytes(byteString: ByteString): ByteString = byteString
+//    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+//    val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+//    val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+//
+//    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+//    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
+//      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
+//      .mapConcat(identity)
+//
+//    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+//      case Person(x) => (Person(x), Person(x))
+//    })
+//
+//    val readFile = FlowWithContext[Person, Person].map(person => (FileIO.fromPath(Paths.get("/Users/martin/myprojects/sbt/streams/source/" + person.file))))
+//    def outFile(n: String) = Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + n)
+//    def writeFile(n: String) = FileIO.toPath(outFile(n))
+//    val copyFile = FlowWithContext[Person, Person].via(readFile).asFlow.map(bytesAndPerson => bytesAndPerson._1.runWith(writeFile(bytesAndPerson._2.file))).asFlowWithContext((u: Person, ctu: Person) => (u, ctu))(ec => ec)
+//    val result = persons.via(copyFile).runWith(Sink.ignore)
+//    result
+//  }
+//
+//  def setLastModified(done: Done) = {
+//    val csvFile = Paths.get("/Users/martin/myprojects/sbt/streams/test.csv")
+//    val in: Source[ByteString, Future[IOResult]] = FileIO.fromPath(csvFile)
+//    def encryptBytes(byteString: ByteString): ByteString = byteString
+//    val lineChunks: Flow[ByteString, List[ByteString], NotUsed] = CsvParsing.lineScanner()
+//    val createPerson: Flow[List[ByteString], Person, NotUsed] = Flow[List[ByteString]].map { x => Person(x.map(y => y.utf8String.mkString).toArray) }
+//    val personObjects: Future[Seq[Person]] = in.via(lineChunks).throttle(2, 1.second).via(createPerson).runWith(Sink.seq)
+//
+//    val sourcePersons: Source[Seq[Person], NotUsed] = Source.future(personObjects)
+//    val sourceOfPersons: Source[Person, NotUsed] = sourcePersons.log("before-map").withAttributes(Attributes
+//      .logLevels(onElement = Logging.WarningLevel, onFinish = Logging.InfoLevel, onFailure = Logging.DebugLevel))
+//      .mapConcat(identity)
+//
+//    val sourceOfPersonsWithContext: SourceWithContext[Person, Person, NotUsed] = SourceWithContext.fromTuples(sourceOfPersons.map {
+//      case Person(x) => (Person(x), Person(x))
+//    })
+//
+//    val result = sourceOfPersonsWithContext.map(person => Files.setLastModifiedTime(Paths.get("/Users/martin/myprojects/sbt/streams/dest/" + person.file), FileTime.from(Instant.ofEpochSecond(9000000000L)))).runWith(Sink.ignore)
+//    result
+//  }
+//
+//  implicit val ec = system.dispatcher
+//
 
 
 
